@@ -65,6 +65,7 @@ Level 0 records are signed with a key kept in ordinary software rather than in s
 - `cnf.jwk` missing, of an unsupported key type, or carrying private key material (`d`): TR-SIG-004
 - Signature does not verify against `cnf.jwk`: TR-SIG-005
 - `policy.policy_uri` is not an absolute URI, or the bundle it resolves to does not have the digest `policy.bundle_hash` declares: TR-POL-003. The malformed case is reported with or without a resolver: a reference the record got wrong needs no network to detect
+- `--expected-policy-hash` was supplied and names another policy, or it uses a different algorithm from `policy.bundle_hash` and the bundle needed to compare it could not be resolved: TR-POL-003. The second case is unverified rather than failed, and it fails the run from Level 0
 - `appraisal` is absent or not an object, or `appraisal.status` is not one of the four values the schema enumerates: TR-APR-001
 - `appraisal.verifier` is absent or is not an absolute URI: TR-APR-002
 - `appraisal.policy_ref` or `appraisal.timestamp` is present and malformed: TR-APR-003, TR-APR-004. Absent, either one is skipped rather than passed
@@ -75,7 +76,7 @@ ______________________________________________________________________
 
 Level 1 adds hardware attestation: the record names the TEE (trusted execution environment, a processor mode that keeps a program's memory sealed off) it ran in and the measurement (a fingerprint of the code loaded into it). The suite checks that these fields are well formed; it does not verify the hardware's signed report, which is a separate step (see [Known limitations](https://trace.agentrust-io.com/conformance/LIMITATIONS/index.md)).
 
-`runtime.platform` must be a value from the `runtime.platform` enum in `schemas/trace-claim.json` other than `software-only`, which carries no hardware attestation evidence. The measurement must be non-zero. `appraisal.status` must be `"affirming"` (TR-APR-005).
+`runtime.platform` must be a value from the `runtime.platform` enum in `schemas/trace-claim.json` other than `software-only`, which carries no hardware attestation evidence. `runtime.measurement` must be a valid `sha256:` or `sha384:` digest (TR-RTE-002 checks format only; all-zero values also match this check). `appraisal.status` must be `"affirming"` (TR-APR-005).
 
 **Minimum conformant Level 1 record** (changes from Level 0 in bold context):
 
@@ -123,7 +124,7 @@ Level 1 adds hardware attestation: the record names the TEE (trusted execution e
 **What causes a Level 1 failure over Level 0:**
 
 - `runtime.platform` is `"software-only"`: TR-RTE-001
-- `runtime.measurement` is all zeros: TR-RTE-002 (all-zero is invalid at Level 1)
+- `runtime.measurement` is missing or not a valid `sha256:` or `sha384:` digest: TR-RTE-002 (format only; all-zero values also match this check)
 - `build_provenance` missing entirely: TR-SCA-001, TR-SCA-002
 - `appraisal.status` is `"none"`: while not a hard schema violation, a conformant Level 1 record should carry `"affirming"`; TR-APR-005 reports this from Level 1 and skips it at Level 0
 
@@ -151,10 +152,10 @@ The `transparency` field must be an HTTPS URI with a host, pointing to a SCITT r
 
 **What causes a Level 2 failure over Level 1:**
 
-- `tool_transcript.hash` missing or not a valid `sha256:` digest: TR-TXN-001
+- `tool_transcript.hash` missing or not a valid `sha256:` or `sha384:` digest: TR-TXN-001
 - `tool_transcript.call_count` negative or not an integer: TR-TXN-002
 - `transparency` is absent or empty, is not a string, or is not an `https://` URI with a host: TR-ANC-001
-- no anchor receipt was supplied, the receipt is malformed, or its inclusion proof does not reproduce the committed `merkle_root`: TR-ANC-002. A record cannot reach Level 2 on a URI alone: pass the receipt with `--receipt`
+- no anchor receipt or no registry entry was supplied, either is malformed, the receipt's `merkle_root` or `leaf_count` differs from the entry's, or the inclusion proof does not reproduce the committed `merkle_root`: TR-ANC-002. A record cannot reach Level 2 on a URI alone: pass the receipt with `--receipt` and the entry with `--entry`
 - `policy.policy_uri` is present, a resolver was supplied with `--policy-dir`, and the bundle could not be read: TR-POL-003. Unverified rather than failed, and unverified fails the run from Level 2
 
 ______________________________________________________________________
@@ -173,6 +174,8 @@ Whether it fails the run is per code rather than one rule over all of them. Diff
 | TR-POL-003 | 2                                   |
 
 A code absent from this table fails from Level 1.
+
+One finding can fail earlier than its code's row, never later. TR-POL-003 does this when the verifier supplied `--expected-policy-hash` in a different algorithm from `policy.bundle_hash` and the bundle needed to compare the two could not be resolved: that finding fails the run from Level 0. The JSON report marks such a finding with `unverified_fails_from_level`.
 
 Technical detail: where the table lives
 
